@@ -48,21 +48,21 @@ the result of the overall security of the framework foundation
 your code. As such, it is your responsibility to follow a few important best
 practices:
 
-* **Keep your application up-to-date with the latest Electron framework release.** 
-When releasing your product, you’re also shipping a bundle composed of Electron, 
-Chromium shared library and Node.js. Vulnerabilities affecting these components 
-may impact the security of your application. By updating Electron to the latest 
-version, you ensure that critical vulnerabilities (such as *nodeIntegration bypasses*) 
+* **Keep your application up-to-date with the latest Electron framework release.**
+When releasing your product, you’re also shipping a bundle composed of Electron,
+Chromium shared library and Node.js. Vulnerabilities affecting these components
+may impact the security of your application. By updating Electron to the latest
+version, you ensure that critical vulnerabilities (such as *nodeIntegration bypasses*)
 are already patched and cannot be exploited in your application.
 
-* **Evaluate your dependencies.** While NPM provides half a million reusable packages, 
-it is your responsibility to choose trusted 3rd-party libraries. If you use outdated 
-libraries affected by known vulnerabilities or rely on poorly maintained code, 
+* **Evaluate your dependencies.** While NPM provides half a million reusable packages,
+it is your responsibility to choose trusted 3rd-party libraries. If you use outdated
+libraries affected by known vulnerabilities or rely on poorly maintained code,
 your application security could be in jeopardy.
 
-* **Adopt secure coding practices.** The first line of defense for your application 
-is your own code. Common web vulnerabilities, such as Cross-Site Scripting (XSS), 
-have a higher security impact on Electron applications hence it is highly recommended 
+* **Adopt secure coding practices.** The first line of defense for your application
+is your own code. Common web vulnerabilities, such as Cross-Site Scripting (XSS),
+have a higher security impact on Electron applications hence it is highly recommended
 to adopt secure software development best practices and perform security testing.
 
 
@@ -711,11 +711,21 @@ shell.openExternal('https://example.com/index.html')
 
 ## 15) Disable the `remote` module
 
+The `remote` module provides a simple way to do inter-process communication (IPC) between the renderer process (web page) and the main process. Using it, a renderer can invoke methods of a main process object without explicitly sending inter-process messages. If your desktop application does not run untrusted content, this is a very elegant way to have your renderer processes access and work with modules that are only available to the main process, such as GUI-related modules (dialog, menu etc.).
+
+However, if your app can run untrusted content and you sandbox your renderer processes accordingly, the `remote` module makes it easy for malicious code to escape the sandbox and have access to system resources via the higher privileges of the main process. Therefore, it should be disabled in such circumstances.
+
 ### Why?
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Etiam blandit augue ut felis egestas dictum a ullamcorper justo. Nulla facilisi. Phasellus ut nisi libero. Nulla nisl lacus, euismod finibus mauris at, feugiat faucibus ipsum. Duis vulputate tempus dui eu tempor. Nulla at rhoncus lacus. Aliquam ultrices augue ut mi dignissim scelerisque.
+`remote` uses an internal IPC channel to communicate with the main process. "Prototype pollution" attacks can grant malicious code access to the internal IPC channel, which can then be used to escape the sandbox by mimicking `remote` IPC messages and getting access to main process modules running with higher privileges.
+
+Additionally, if you're not careful, preload scripts may leak modules to a sandboxed renderer. Leaking `remote` arms malicious code with a multitude of main process modules with which to perform an attack..
+
+Disabling the `remote` module eliminates these attack vectors. Enabling context isolation also prevents the "prototype pollution" attacks from succeeding.
 
 ### How?
+
+Sandboxed renderers
 
 ```js
 // Bad
@@ -739,21 +749,28 @@ const mainWindow = new BrowserWindow({
 <webview enableremotemodule="false" src="page.html"></webview>
 ```
 
-
 ## 16) Filter the `remote` module
+
+If you cannot disable the `remote` module, you should filter the `remote` modules that your application does not require. This can be done by blocking certain modules entirely and by replacing others with proxies that expose only the functionality that your app needs.
 
 ### Why?
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Etiam blandit augue ut felis egestas dictum a ullamcorper justo. Nulla facilisi. Phasellus ut nisi libero. Nulla nisl lacus, euismod finibus mauris at, feugiat faucibus ipsum. Duis vulputate tempus dui eu tempor. Nulla at rhoncus lacus. Aliquam ultrices augue ut mi dignissim scelerisque.
+Due to the system access privileges of the main process, functionality provided by the main process modules may be dangerous in the hands of malicious code running in a compromised renderer process. By limiting the set of accessible modules to the minimum that your app needs and filtering out the others, you reduce the toolset that malicious code can use to attack the system.
 
 ### How?
 
 ```js
+const readOnlyFsProxy = require(/*...*/)  //  exposes only file read functionality
+
 const allowedModules = new Set(['crypto'])
+const proxiedModules = new Map(['fs', readOnlyFsProxy])
 const allowedElectronModules = new Set(['shell'])
 const allowedGlobals = new Set()
 
 app.on('remote-require', (event, webContents, moduleName) => {
+  if (proxiedModules.has(moduleName)) {
+    event.returnValue = proxiedModules.get(moduleName)
+  }
   if (!allowedModules.has(moduleName)) {
     event.preventDefault()
   }
