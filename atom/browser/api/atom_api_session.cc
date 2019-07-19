@@ -508,11 +508,21 @@ void Session::DisableNetworkEmulation() {
       network_emulation_token_, network::mojom::NetworkConditions::New());
 }
 
-void WrapVerifyProc(base::Callback<void(const VerifyRequestParams& request,
-                                        base::Callback<void(int)>)> proc,
-                    const VerifyRequestParams& request,
-                    base::OnceCallback<void(int)> cb) {
-  proc.Run(request, base::AdaptCallbackForRepeating(std::move(cb)));
+void WrapVerifyProcNullCallback(int result) {
+  LOG(INFO) << "WrapVerifyProcNullCallback, result=" << result;
+}
+
+void WrapVerifyProc(
+    base::RepeatingCallback<void(const VerifyRequestParams& request,
+                                 base::RepeatingCallback<void(int)>)> proc,
+    const VerifyRequestParams& request,
+    base::OnceCallback<void(int)> cb) {
+  if (cb.is_null()) {
+    // Callback may have been reset.
+    proc.Run(request, base::BindRepeating(&WrapVerifyProcNullCallback));
+  } else {
+    proc.Run(request, base::AdaptCallbackForRepeating(std::move(cb)));
+  }
 }
 
 void Session::SetCertVerifyProc(v8::Local<v8::Value> val,
