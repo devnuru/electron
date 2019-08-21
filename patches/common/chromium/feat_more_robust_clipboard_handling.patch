@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Richard Townsend <Richard.Townsend@arm.com>
+Date: Fri, 9 Aug 2019 15:00:32 +0100
+Subject: feat: more robust clipboard handling
+
+This patch is intended to reduce the number of clipboard-related test
+failures on Windows on Arm. It increases the number of attempts the open
+the clipboard and prints a log message identifying which process
+has locked it to the console for futher investigation.
+
+diff --git a/ui/base/clipboard/clipboard_win.cc b/ui/base/clipboard/clipboard_win.cc
+index ae01e88dbfbbfe34bb76e4234c17e95d06737663..4c0f2a8329b58e79b4f9ab941bc2599514a13f1c 100644
+--- a/ui/base/clipboard/clipboard_win.cc
++++ b/ui/base/clipboard/clipboard_win.cc
+@@ -66,7 +66,7 @@ class ScopedClipboard {
+   }
+ 
+   bool Acquire(HWND owner) {
+-    const int kMaxAttemptsToOpenClipboard = 5;
++    const int kMaxAttemptsToOpenClipboard = 15;
+ 
+     if (opened_) {
+       NOTREACHED();
+@@ -99,6 +99,7 @@ class ScopedClipboard {
+     }
+ 
+     // We failed to acquire the clipboard.
++    DumpClipboardOwner();
+     return false;
+   }
+ 
+@@ -117,6 +118,19 @@ class ScopedClipboard {
+   }
+ 
+  private:
++  void DumpClipboardOwner() {
++    DWORD pid;
++    WCHAR process_name[255];
++    // Figure out which process currently owns the clipboard
++    HWND current_owner = ::GetOpenClipboardWindow();
++    if (current_owner == NULL) {
++      LOG(ERROR) << "clipboard is no longer owned (but acquiring it failed)";
++      return;
++    }
++    ::GetWindowThreadProcessId(current_owner, &pid);
++    ::GetModuleFileName(reinterpret_cast<HMODULE>(pid), process_name, 255);
++    LOG(ERROR) << "clipboard owned by " << process_name;
++  }
+   bool opened_;
+ };
+ 
